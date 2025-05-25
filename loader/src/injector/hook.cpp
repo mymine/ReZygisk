@@ -775,6 +775,7 @@ void ZygiskContext::nativeForkSystemServer_pre() {
     if (!is_child())
       return;
 
+    load_modules_only();
     run_modules_pre();
     rezygiskd_system_server_started();
 
