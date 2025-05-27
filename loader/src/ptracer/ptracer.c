@@ -418,6 +418,16 @@ bool trace_zygote(int pid) {
       if (STOPPED_WITH(SIGCONT, 0)) {
         LOGD("received SIGCONT");
 
+        /* INFO: Due to kernel bugs, fixed in 5.16+, ptrace_message (msg of
+             PTRACE_GETEVENTMSG) may not represent the current state of
+             the process. Because we set some options, which alters the
+             ptrace_message, we need to call PTRACE_SYSCALL to reset the
+             ptrace_message to 0, the default/normal state.
+        */
+        ptrace(PTRACE_SYSCALL, pid, 0, 0);
+
+        WAIT_OR_DIE
+
         ptrace(PTRACE_DETACH, pid, 0, SIGCONT);
       }
     } else {
