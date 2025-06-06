@@ -31,6 +31,7 @@
 using namespace std;
 
 static void hook_unloader();
+static void unhook_functions();
 
 namespace {
 
@@ -219,14 +220,8 @@ DCL_HOOK_FUNC(int, pthread_attr_setstacksize, void *target, size_t size) {
     if (gettid() != getpid())
         return res;
 
-    delete plt_hook_list;
-
     if (should_unmap_zygisk) {
-        if (!lsplt::InvalidateBackup()) {
-            LOGE("Failed to invalidate backup for plt_hook");
-
-            should_unmap_zygisk = false;
-        }
+        unhook_functions();
         cached_map_infos.clear();
 
         if (should_unmap_zygisk) {
@@ -236,17 +231,6 @@ DCL_HOOK_FUNC(int, pthread_attr_setstacksize, void *target, size_t size) {
             LOGD("unmap libzygisk.so loaded at %p with size %zu", start_addr, block_size);
 
             [[clang::musttail]] return munmap(start_addr, block_size);
-        }
-    } else {
-        for (const auto &[dev, inode, sym, old_func] : *plt_hook_list) {
-            if (!lsplt::RegisterHook(dev, inode, sym, *old_func, nullptr)) {
-                LOGE("Failed to register plt_hook [%s]", sym);
-            }
-        }
-
-        if (!lsplt::CommitHook(cached_map_infos)) {
-            LOGE("Failed to restore plt_hook");
-            should_unmap_zygisk = false;
         }
     }
 
@@ -965,4 +949,18 @@ static void hook_unloader() {
     }
     PLT_HOOK_REGISTER(art_dev, art_inode, pthread_attr_setstacksize);
     hook_commit();
+}
+
+static void unhook_functions() {
+    // Unhook plt_hook
+    for (const auto &[dev, inode, sym, old_func] : *plt_hook_list) {
+        if (!lsplt::RegisterHook(dev, inode, sym, *old_func, nullptr)) {
+            LOGE("Failed to register plt_hook [%s]", sym);
+        }
+    }
+    delete plt_hook_list;
+    if (!hook_commit()) {
+        LOGE("Failed to restore plt_hook");
+        should_unmap_zygisk = false;
+    }
 }
