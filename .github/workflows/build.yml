@@ -39,7 +39,7 @@ jobs:
           private_key: ${{ secrets.ORG_PRIVATE_KEY }}
           public_key: ${{ secrets.ORG_PUBLIC_KEY }}
         run: |
-          if [ -z "$private_key" ] || [ -z "$public_key" ]; thenAdd comment更多操作
+          if [ -z "$private_key" ] || [ -z "$public_key" ]; then
             echo "Private or public key is not set."
           else
             echo "$private_key" | base64 -d > module/private_key
