@@ -60,7 +60,7 @@ jobs:
         run: |
           releaseName=`ls module/build/outputs/release/ReZygisk-v*-release.zip | awk -F '(/|.zip)' '{print $5}'` && echo "releaseName=$releaseName" >> $GITHUB_OUTPUT
           unzip module/build/outputs/release/ReZygisk-v*-release.zip -d zksu-release
-          rm -rf zksu-release/webroot
+          #rm -rf zksu-release/webroot
           
       - name: Upload release
         uses: actions/upload-artifact@v4
