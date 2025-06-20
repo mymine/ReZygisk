@@ -625,6 +625,7 @@ bool umount_root(struct root_impl impl) {
         strncmp(mount.root, "/adb/modules/", strlen("/adb/modules/")) == 0 &&
         strncmp(mount.target, "/system/etc/", strlen("/system/etc/")) != 0) continue;
 
+    if (strcmp(mount.type, "overlay") == 0) should_unmount = true;
     if (strcmp(mount.source, source_name) == 0) should_unmount = true;
     if (strncmp(mount.target, "/data/adb/modules", strlen("/data/adb/modules")) == 0) should_unmount = true;
     if (strncmp(mount.root, "/adb/modules/", strlen("/adb/modules/")) == 0) should_unmount = true;
