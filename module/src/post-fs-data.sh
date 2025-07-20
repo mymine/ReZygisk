@@ -47,6 +47,7 @@ if [ -f $MODDIR/lib/libzygisk.so ];then
 fi
 
 CPU_ABIS=$(getprop ro.system.product.cpu.abilist)
+CPU_ABIS=${CPU_ABIS:-$(getprop ro.product.cpu.abilist)}
 
 if [[ "$CPU_ABIS" == *"arm64-v8a"* || "$CPU_ABIS" == *"x86_64"* ]]; then
   ./bin/zygisk-ptrace64 monitor &
