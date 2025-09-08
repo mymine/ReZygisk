@@ -1,0 +1,16 @@
+version: "1"  # 配置文件版本，目前为 1
+
+rules:  # 规则数组，可定义多个分支同步规则
+  - base: main                    # 【目标分支】PR 将被合并到这个分支
+    upstream: main:PerformanC         # 【源分支】格式为 <owner>:<branch>，必须与当前仓库在同一 fork 网络中
+    mergeMethod: merge              # 【合并方式】可选：none, merge, squash, rebase, hardreset；默认 none（不合并）
+    mergeUnstable: false            # 【是否合并不稳定 PR】设为 false 时，若 PR 有冲突或 CI 失败，则不合并（推荐保持 false 保证安全）
+    assignees:                      # 【指派处理人】PR 创建后自动分配给以下用户
+      - mymine
+    reviewers:                      # 【默认审核人】PR 创建后自动请求以下用户审核
+      - mymine
+    conflictReviewers:              # 【冲突时的审核人】当 PR 发生合并冲突时，自动指派以下用户介入处理
+      - mymine
+
+label: ":arrow_heading_down: pull"         # 【PR 标签】为符合规则的 PR 自动打上此标签，便于识别（可选）
+conflictLabel: "merge-conflict"            # 【冲突标签】当检测到冲突时，自动添加此标签（默认值为 "merge-conflict"，可自定义）
