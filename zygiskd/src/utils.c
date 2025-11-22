@@ -20,6 +20,7 @@
 
 #include "utils.h"
 #include "root_impl/common.h"
+#include "root_impl/kernelsu.h"
 #include "root_impl/magisk.h"
 
 int clean_namespace_fd = 0;
@@ -108,11 +109,8 @@ static void get_current_attr(char *restrict output, size_t size) {
     return;
   }
 
-  if (fread(output, 1, size, current) == 0) {
+  if (fread(output, 1, size, current) == 0)
     LOGE("fread: %s\n", strerror(errno));
-
-    return;
-  }
 
   fclose(current);
 }
@@ -436,7 +434,8 @@ void stringify_root_impl_name(struct root_impl impl, char *restrict output) {
       break;
     }
     case KernelSU: {
-      strcpy(output, "KernelSU");
+      if (impl.variant == KOfficial) strcpy(output, "KernelSU");
+      else strcpy(output, "KernelSU Next");
 
       break;
     }
@@ -446,11 +445,8 @@ void stringify_root_impl_name(struct root_impl impl, char *restrict output) {
       break;
     }
     case Magisk: {
-      if (impl.variant == 0) {
-        strcpy(output, "Magisk Official");
-      } else {
-        strcpy(output, "Magisk Kitsune");
-      }
+      if (impl.variant == MOfficial) strcpy(output, "Magisk Official");
+      else strcpy(output, "Magisk Kitsune");
 
       break;
     }
@@ -544,15 +540,13 @@ bool parse_mountinfo(const char *restrict pid, struct mountinfos *restrict mount
             &optional_start, &optional_end, &type_start, &type_end,
             &source_start, &source_end, &fs_option_start, &fs_option_end);
 
-    mounts->mounts = (struct mountinfo *)realloc(mounts->mounts, (i + 1) * sizeof(struct mountinfo));
-    if (!mounts->mounts) {
+    struct mountinfo *tmp_mounts = (struct mountinfo *)realloc(mounts->mounts, (i + 1) * sizeof(struct mountinfo));
+    if (!tmp_mounts) {
       LOGE("Failed to allocate memory for mounts->mounts");
 
-      fclose(mountinfo);
-      free_mounts(mounts);
-
-      return false;
+      goto cleanup_mount_allocs;
     }
+    mounts->mounts = tmp_mounts;
 
     unsigned int shared = 0;
     unsigned int master = 0;
@@ -573,16 +567,64 @@ bool parse_mountinfo(const char *restrict pid, struct mountinfos *restrict mount
     mounts->mounts[i].parent = parent;
     mounts->mounts[i].device = (dev_t)(makedev(maj, min));
     mounts->mounts[i].root = strndup(line + root_start, (size_t)(root_end - root_start));
+    if (mounts->mounts[i].root == NULL) {
+      LOGE("Failed to allocate memory for root\n");
+
+      goto cleanup_mount_allocs;
+    }
     mounts->mounts[i].target = strndup(line + target_start, (size_t)(target_end - target_start));
+    if (mounts->mounts[i].target == NULL) {
+      LOGE("Failed to allocate memory for target\n");
+
+      goto cleanup_root;
+    }
     mounts->mounts[i].vfs_option = strndup(line + vfs_option_start, (size_t)(vfs_option_end - vfs_option_start));
+    if (mounts->mounts[i].vfs_option == NULL) {
+      LOGE("Failed to allocate memory for vfs_option\n");
+
+      goto cleanup_target;
+    }
     mounts->mounts[i].optional.shared = shared;
     mounts->mounts[i].optional.master = master;
     mounts->mounts[i].optional.propagate_from = propagate_from;
     mounts->mounts[i].type = strndup(line + type_start, (size_t)(type_end - type_start));
+    if (mounts->mounts[i].type == NULL) {
+      LOGE("Failed to allocate memory for type\n");
+
+      goto cleanup_vfs_option;
+    }
     mounts->mounts[i].source = strndup(line + source_start, (size_t)(source_end - source_start));
+    if (mounts->mounts[i].source == NULL) {
+      LOGE("Failed to allocate memory for source\n");
+
+      goto cleanup_type;
+    }
     mounts->mounts[i].fs_option = strndup(line + fs_option_start, (size_t)(fs_option_end - fs_option_start));
+    if (mounts->mounts[i].fs_option == NULL) {
+      LOGE("Failed to allocate memory for fs_option\n");
+
+      goto cleanup_source;
+    }
 
     i++;
+
+    continue;
+
+    cleanup_source:
+      free((void *)mounts->mounts[i].source);
+    cleanup_type:
+      free((void *)mounts->mounts[i].type);
+    cleanup_vfs_option:
+      free((void *)mounts->mounts[i].vfs_option);
+    cleanup_target:
+      free((void *)mounts->mounts[i].target);
+    cleanup_root:
+      free((void *)mounts->mounts[i].root);
+    cleanup_mount_allocs:
+      fclose(mountinfo);
+      free_mounts(mounts);
+
+      return false;
   }
 
   fclose(mountinfo);
@@ -618,14 +660,7 @@ bool umount_root(struct root_impl impl) {
     struct mountinfo mount = mounts.mounts[i];
 
     bool should_unmount = false;
-    /* INFO: The root implementations have their own /system mounts, so we
-                only skip the mount if they are from a module, not Magisk itself.
-    */
-    if (strncmp(mount.target, "/system/", strlen("/system/")) == 0 &&
-        strncmp(mount.root, "/adb/modules/", strlen("/adb/modules/")) == 0 &&
-        strncmp(mount.target, "/system/etc/", strlen("/system/etc/")) != 0) continue;
-
-    if (strcmp(mount.source, source_name) == 0) should_unmount = true;
+    if (strcmp(mount.source, source_name) == 0 || (impl.impl == Magisk && strcmp(mount.source, "worker") == 0)) should_unmount = true;
     if (strncmp(mount.target, "/data/adb/modules", strlen("/data/adb/modules")) == 0) should_unmount = true;
     if (strncmp(mount.root, "/adb/modules/", strlen("/adb/modules/")) == 0) should_unmount = true;
 
@@ -786,7 +821,7 @@ int save_mns_fd(int pid, enum MountNamespaceState mns_state, struct root_impl im
     return -1;
   }
 
-  if (impl.impl == Magisk && impl.variant == Kitsune && mns_state == Clean) {
+  if (impl.impl == Magisk && impl.variant == MKitsune && mns_state == Clean) {
     LOGI("[Magisk] Magisk Kitsune detected, will skip cache first.");
 
     /* INFO: MagiskSU of Kitsune has a special behavior: It is only mounted

@@ -28,7 +28,7 @@ char *magisk_managers[] = {
 #define DEBUG_RAMDISK_MAGISK lp_select("/debug_ramdisk/magisk32", "/debug_ramdisk/magisk64")
 #define BITLESS_DEBUG_RAMDISK_MAGISK "/debug_ramdisk/magisk"
 
-enum magisk_variants variant = Official;
+static enum magisk_variants variant = MOfficial;
 /* INFO: Longest path */
 static char path_to_magisk[sizeof(DEBUG_RAMDISK_MAGISK)] = { 0 };
 bool is_using_sulist = false;
@@ -74,7 +74,7 @@ void magisk_get_existence(struct root_impl_state *state) {
     return;
   }
 
-  state->variant = (uint8_t)Official;
+  state->variant = (uint8_t)MOfficial;
 
   for (unsigned long i = 0; i < sizeof(supported_variants) / sizeof(supported_variants[0]); i++) {
     if (strstr(magisk_info, supported_variants[i])) {
@@ -144,8 +144,8 @@ bool magisk_uid_should_umount(const char *const process) {
   char sqlite_cmd[51 + PROCESS_NAME_MAX_LEN];
   if (is_using_sulist)
     snprintf(sqlite_cmd, sizeof(sqlite_cmd), "SELECT 1 FROM sulist WHERE process=\"%s\" LIMIT 1", process);
-  else
-    snprintf(sqlite_cmd, sizeof(sqlite_cmd), "SELECT 1 FROM denylist WHERE process=\"%s\" LIMIT 1", process);
+  else /* INFO: Find if process string starts with any data in "process" column */
+    snprintf(sqlite_cmd, sizeof(sqlite_cmd), "SELECT 1 FROM denylist WHERE \"%s\" LIKE process || '%%' LIMIT 1", process);
 
   char *const argv[] = { "magisk", "--sqlite", sqlite_cmd, NULL };
 

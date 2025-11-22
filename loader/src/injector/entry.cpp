@@ -1,5 +1,7 @@
+#include "misc.h"
 #include "daemon.h"
 #include "logging.h"
+#include "solist.h"
 #include "zygisk.hpp"
 
 using namespace std;
@@ -8,7 +10,7 @@ void *start_addr = nullptr;
 size_t block_size = 0;
 
 extern "C" [[gnu::visibility("default")]]
-void entry(void* addr, size_t size, const char* path) {
+void entry(void *addr, size_t size) {
     LOGD("Zygisk library injected, version %s", ZKSU_VERSION);
 
     start_addr = addr;
@@ -23,6 +25,15 @@ void entry(void* addr, size_t size, const char* path) {
     LOGD("start plt hooking");
     hook_functions();
 
-    void *module_addrs[1] = { addr };
-    clean_trace(path, module_addrs, 1, 1, 0, false);
+    solist_drop_so_path(addr, true);
+    solist_reset_counters(1, 1);
+
+    struct kernel_version version = parse_kversion();
+    if (version.major > 3 || (version.major == 3 && version.minor >= 8)) {
+        LOGD("Supported kernel version %d.%d.%d, sending seccomp event", version.major, version.minor, version.patch);
+
+        send_seccomp_event();
+    }
+
+    LOGD("Zygisk library execution done, addr: %p, size: %zu", addr, size);
 }

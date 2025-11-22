@@ -4,7 +4,6 @@ SKIPUNZIP=1
 DEBUG=@DEBUG@
 MIN_KSU_VERSION=@MIN_KSU_VERSION@
 MIN_KSUD_VERSION=@MIN_KSUD_VERSION@
-MAX_KSU_VERSION=@MAX_KSU_VERSION@
 MIN_MAGISK_VERSION=@MIN_MAGISK_VERSION@
 MIN_APATCH_VERSION=@MIN_APATCH_VERSION@
 
@@ -15,12 +14,6 @@ if [ "$BOOTMODE" ] && [ "$KSU" ]; then
     ui_print "*********************************************************"
     ui_print "! KernelSU version is too old!"
     ui_print "! Please update KernelSU to latest version"
-    abort    "*********************************************************"
-  elif [ "$KSU_KERNEL_VER_CODE" -ge "$MAX_KSU_VERSION" ]; then
-    ui_print "*********************************************************"
-    ui_print "! KernelSU version abnormal!"
-    ui_print "! Please integrate KernelSU into your kernel"
-    ui_print "  as submodule instead of copying the source code"
     abort    "*********************************************************"
   fi
   if ! [ "$KSU_VER_CODE" ] || [ "$KSU_VER_CODE" -lt "$MIN_KSUD_VERSION" ]; then
@@ -112,7 +105,17 @@ mkdir "$MODPATH/webroot"
 ui_print "- Extracting webroot"
 unzip -o "$ZIPFILE" "webroot/*" -x "*.sha256" -d "$MODPATH"
 
-CPU_ABIS=$(getprop ro.product.cpu.abilist)
+# INFO: Utilize the one with the biggest output, as some devices with Tango have the full list
+#         in ro.product.cpu.abilist but others only have a subset there, and the full list in
+#         ro.system.product.cpu.abilist
+CPU_ABIS_PROP1=$(getprop ro.system.product.cpu.abilist)
+CPU_ABIS_PROP2=$(getprop ro.product.cpu.abilist)
+
+if [ "${#CPU_ABIS_PROP2}" -gt "${#CPU_ABIS_PROP1}" ]; then
+  CPU_ABIS=$CPU_ABIS_PROP2
+else
+  CPU_ABIS=$CPU_ABIS_PROP1
+fi
 
 SUPPORTS_32BIT=false
 SUPPORTS_64BIT=false

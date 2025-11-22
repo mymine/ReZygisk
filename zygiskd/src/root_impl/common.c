@@ -30,6 +30,7 @@ void root_impls_setup(void) {
     impl.impl = Multiple;
   } else if (state_ksu.state == Supported) {
     impl.impl = KernelSU;
+    impl.variant = state_ksu.variant;
   } else if (state_apatch.state == Supported) {
     impl.impl = APatch;
   } else if (state_magisk.state == Supported) {
@@ -73,8 +74,7 @@ void root_impls_setup(void) {
 }
 
 void get_impl(struct root_impl *uimpl) {
-  uimpl->impl = impl.impl;
-  uimpl->variant = impl.variant;
+  *uimpl = impl;
 }
 
 bool uid_granted_root(uid_t uid) {
@@ -100,7 +100,7 @@ bool uid_should_umount(uid_t uid, const char *const process) {
       return ksu_uid_should_umount(uid);
     }
     case APatch: {
-      return apatch_uid_should_umount(uid);
+      return apatch_uid_should_umount(uid, process);
     }
     case Magisk: {
       return magisk_uid_should_umount(process);
@@ -126,4 +126,8 @@ bool uid_is_manager(uid_t uid) {
       return false;
     }
   }
+}
+
+void root_impl_cleanup(void) {
+  if (impl.impl == KernelSU) ksu_cleanup();
 }

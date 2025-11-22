@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 #include "utils.h"
+#include "misc.h"
 
 bool inject_on_main(int pid, const char *lib_path) {
   LOGI("injecting %s to zygote %d", lib_path, pid);
@@ -61,11 +62,9 @@ bool inject_on_main(int pid, const char *lib_path) {
 
     if (buf == NULL) break;
 
-    /* TODO: Why ++p? */
     p++;
   }
 
-  /* TODO: Why ++p? */
   p++;
 
   ElfW(auxv_t) *auxv = (ElfW(auxv_t) *)p;
@@ -104,15 +103,13 @@ bool inject_on_main(int pid, const char *lib_path) {
     return false;
   }
 
-  /*
-    Replace the program entry with an invalid address
-    For arm32 compatibility, we set the last bit to the same as the entry address
-  */
-
   /* INFO: (-0x0F & ~1) is a value below zero, while the one after "|"
             is an unsigned (must be 0 or greater) value, so we must
             cast the second value to signed long (intptr_t) to avoid
             undefined behavior.
+
+           Replace the program entry with an invalid address. For arm32 compatibility,
+            we set the last bit to the same as the entry address.
   */
   uintptr_t break_addr = (uintptr_t)((intptr_t)(-0x0F & ~1) | (intptr_t)((uintptr_t)entry_addr & 1));
   if (!write_proc(pid, (uintptr_t)addr_of_entry_addr, &break_addr, sizeof(break_addr))) return false;
@@ -130,13 +127,13 @@ bool inject_on_main(int pid, const char *lib_path) {
       return false;
     }
 
-    /* The linker has been initialized now, we can do dlopen */
+    /* INFO: The linker has been initialized now, we can do dlopen */
     LOGD("stopped at entry");
 
-    /* restore entry address */
+    /* INFO: Restore entry address */
     if (!write_proc(pid, (uintptr_t) addr_of_entry_addr, &entry_addr, sizeof(entry_addr))) return false;
 
-    /* backup registers */
+    /* INFO: Backup registers */
     struct user_regs_struct backup;
     memcpy(&backup, &regs, sizeof(regs));
 
@@ -160,15 +157,32 @@ bool inject_on_main(int pid, const char *lib_path) {
     LOGD("libc return addr %p", libc_return_addr);
 
     const char *libdl_path = NULL;
-    for (size_t i = 0; i < local_map->size; i++) {
-      if (local_map->maps[i].path == NULL) continue;
+    const char *libc_path = NULL;
+    for (size_t i = 0; i < map->size; i++) {
+      if (map->maps[i].path == NULL) continue;
 
-      const char *filename = position_after(local_map->maps[i].path, '/');
+      const char *filename = position_after(map->maps[i].path, '/');
 
-      if (strcmp(filename, "libdl.so") == 0) {
-        libdl_path = local_map->maps[i].path;
+      if (!libdl_path && strcmp(filename, "libdl.so") == 0) {
+        libdl_path = map->maps[i].path;
 
-        break;
+        LOGD("found libdl.so at %s", libdl_path);
+
+        /* INFO: If we had found libc.so too, no need to continue searching */
+        if (libc_path) break;
+
+        continue;
+      }
+
+      if (!libc_path && strcmp(filename, "libc.so") == 0) {
+        libc_path = map->maps[i].path;
+
+        LOGD("found libc.so at %s", libc_path);
+
+        /* INFO: If we had found libdl.so too, no need to continue searching */
+        if (libdl_path) break;
+
+        continue;
       }
     }
 
@@ -238,19 +252,19 @@ bool inject_on_main(int pid, const char *lib_path) {
         LOGE("dlerror str is null");
 
         free(args);
+        free_maps(local_map);
+        free_maps(map);
 
         return false;
       }
 
-      #ifdef __LP64__
-        void *strlen_addr = find_func_addr(local_map, map, "/system/lib64/libc.so", "strlen");
-      #else
-        void *strlen_addr = find_func_addr(local_map, map, "/system/lib/libc.so", "strlen");
-      #endif
+      void *strlen_addr = find_func_addr(local_map, map, libc_path, "strlen");
       if (strlen_addr == NULL) {
         LOGE("find strlen");
 
         free(args);
+        free_maps(local_map);
+        free_maps(map);
 
         return false;
       }
@@ -262,6 +276,8 @@ bool inject_on_main(int pid, const char *lib_path) {
         LOGE("dlerror len <= 0");
 
         free(args);
+        free_maps(local_map);
+        free_maps(map);
 
         return false;
       }
@@ -271,6 +287,8 @@ bool inject_on_main(int pid, const char *lib_path) {
         LOGE("malloc err");
 
         free(args);
+        free_maps(local_map);
+        free_maps(map);
 
         return false;
       }
@@ -281,6 +299,9 @@ bool inject_on_main(int pid, const char *lib_path) {
 
       free(err);
       free(args);
+
+      free_maps(local_map);
+      free_maps(map);
 
       return false;
     }
@@ -321,7 +342,7 @@ bool inject_on_main(int pid, const char *lib_path) {
       return false;
     }
 
-    /* record the address range of libzygisk.so */
+    /* INFO: Record the address range of libzygisk.so */
     map = parse_maps(pid_maps);
 
     void *start_addr = NULL;
@@ -335,27 +356,24 @@ bool inject_on_main(int pid, const char *lib_path) {
       size_t size = map->maps[i].end - map->maps[i].start;
       block_size += size;
 
-      LOGD("found block %s: [%p-%p] with size %zu", map->maps[i].path, (void *)map->maps[i].start,
-            (void *)map->maps[i].end, size);
+      LOGD("found block %s: [%p-%p] with size %zu", map->maps[i].path, (void *)map->maps[i].start, (void *)map->maps[i].end, size);
     }
 
     free_maps(map);
 
-    /* call injector entry(start_addr, block_size, path) */
+    /* INFO: Call entry(start_addr, block_size) */
     args[0] = (uintptr_t)start_addr;
     args[1] = block_size;
-    str = push_string(pid, &regs, rezygiskd_get_path());
-    args[2] = (uintptr_t)str;
 
-    remote_call(pid, &regs, injector_entry, (uintptr_t)libc_return_addr, args, 3);
+    remote_call(pid, &regs, injector_entry, (uintptr_t)libc_return_addr, args, 2);
 
     free(args);
 
-    /* reset pc to entry */
+    /* INFO: Reset pc to entry */
     backup.REG_IP = (long) entry_addr;
     LOGD("invoke entry");
 
-    /* restore registers */
+    /* INFO: Restore registers */
     if (!set_regs(pid, &backup)) return false;
 
     return true;
@@ -383,13 +401,24 @@ bool trace_zygote(int pid) {
 
   int status;
 
-  if (ptrace(PTRACE_SEIZE, pid, 0, PTRACE_O_EXITKILL) == -1) {
-    PLOGE("seize");
+  struct kernel_version version = parse_kversion();
+  if (version.major > 3 || (version.major == 3 && version.minor >= 8)) {
+    if (ptrace(PTRACE_SEIZE, pid, 0, PTRACE_O_EXITKILL | PTRACE_O_TRACESECCOMP) == -1) {
+      PLOGE("seize");
 
-    return false;
+      return false;
+    }
+
+    WAIT_OR_DIE;
+  } else {
+    if (ptrace(PTRACE_SEIZE, pid, 0, 0) == -1) {
+      PLOGE("seize");
+
+      return false;
+    }
+
+    WAIT_OR_DIE;
   }
-
-  WAIT_OR_DIE
 
   if (STOPPED_WITH(SIGSTOP, PTRACE_EVENT_STOP)) {
     char lib_path[PATH_MAX];

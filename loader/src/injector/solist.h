@@ -5,17 +5,19 @@
 extern "C" {
 #endif /* __cplusplus */
 
-typedef struct SoInfo SoInfo;
-
-struct SoInfo {
-  char data[0];
-};
+typedef void SoInfo;
 
 #define FuncType(name) void (*name)
 
 struct pdg {
   void *(*ctor)();
   void *(*dtor)();
+};
+
+struct soinfo_deconstructor {
+  void (*fini_func)();
+  size_t fini_array_size;
+  void (**fini_array)();
 };
 
 /* 
@@ -28,14 +30,20 @@ struct pdg {
           libzygisk.so, so that it doesn't create gaps between current module info
           and the next (soinfo).
 
-        To do that, we use 2 functions: soinfo_free, and set_size, which will
-          zero the region size, and then remove all traces of that library (libzygisk.so)
-          which was previously loaded.
+        To do that, we use 2 functions: set_size and dlclose, which will first zero
+          zero the size that the linker believes the shared library is, and then dlclose.
+          Because the size is 0, it won't munmap the library, allowing us to keep loaded while
+          having all other traces removed.
+
+        For the case of modules, which are arbitrary, we won't call dlclose, as it could break
+          the module. Instead of using dlclose, we separately call soinfo_free, which will free
+          the soinfo structure. That will allow to keep the data initialized by constructors
+          mmaped, hence properly dropping most traces without breaking the module.
 
   SOURCES:
    - https://android.googlesource.com/platform/bionic/+/refs/heads/android15-release/linker/linker.cpp#1712
 */
-bool solist_drop_so_path(void *lib_memory);
+bool solist_drop_so_path(void *lib_memory, bool unload);
 
 /* 
   INFO: When dlopen'ing a library, the system will increment 1 to a global
@@ -57,6 +65,33 @@ bool solist_drop_so_path(void *lib_memory);
    - https://android.googlesource.com/platform/bionic/+/refs/heads/android15-release/linker/linker.cpp#3413
 */
 void solist_reset_counters(size_t load, size_t unload);
+
+/*
+  INFO: Helper function to get the size of the mappings of a loaded library.
+
+  SOURCES:
+   - https://android.googlesource.com/platform/bionic/+/refs/heads/android15-release/linker/linker_soinfo.h#171
+*/
+ssize_t solist_get_size(void *lib_memory);
+
+/*
+  INFO: Helper function to get the base of the loaded library, or, in other words
+          the start of the first mapping of the loaded library.
+
+  SOURCES:
+   - https://android.googlesource.com/platform/bionic/+/refs/heads/android15-release/linker/linker_soinfo.h#170
+*/
+void *solist_get_base(void *lib_memory);
+
+/*
+  INFO: Helper function to get the callback to the loaded library deconstructors (fini).
+
+  SOURCES:
+   - https://android.googlesource.com/platform/bionic/+/refs/heads/android15-release/linker/linker_soinfo.h#219
+   - https://android.googlesource.com/platform/bionic/+/refs/heads/android15-release/linker/linker_soinfo.h#220
+   - https://android.googlesource.com/platform/bionic/+/refs/heads/android15-release/linker/linker_soinfo.h#222
+*/
+struct soinfo_deconstructor solist_get_deconstructors(void *lib_memory);
 
 #ifdef __cplusplus
 }

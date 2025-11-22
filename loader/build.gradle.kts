@@ -35,7 +35,7 @@ val defaultCFlags = arrayOf(
 )
 
 val releaseFlags = arrayOf(
-    "-Ofast", "-flto=thin",
+    "-O3", "-ffast-math", "-flto=thin",
     "-Wno-unused", "-Wno-unused-parameter",
     "-fvisibility=hidden", "-fvisibility-inlines-hidden",
     "-fno-unwind-tables", "-fno-asynchronous-unwind-tables",
@@ -57,7 +57,6 @@ android {
     defaultConfig {
         externalNativeBuild.cmake {
             arguments += "-DANDROID_STL=none"
-            arguments += "-DLSPLT_STANDALONE=ON"
             arguments += "-DCMAKE_BUILD_PARALLEL_LEVEL=${Runtime.getRuntime().availableProcessors()}"
             cFlags("-std=c18", *defaultCFlags)
             cppFlags("-std=c++20", *defaultCFlags)

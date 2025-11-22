@@ -32,8 +32,11 @@ zygisk_companion_entry load_module(int fd) {
   snprintf(path, sizeof(path), "/proc/self/fd/%d", fd);
 
   void *handle = dlopen(path, RTLD_NOW);
+  if (!handle) {
+    LOGE("Failed to dlopen module: %s\n", dlerror());
 
-  if (!handle) return NULL;
+    return NULL;
+  }
 
   void *entry = dlsym(handle, "zygisk_companion_entry");
   if (!entry) {
@@ -121,11 +124,7 @@ void companion_entry(int fd) {
     ASSURE_SIZE_WRITE("ZygiskdCompanion", "module_entry", ret, sizeof(uint8_t));
   }
 
-  struct sigaction sa;
-  memset(&sa, 0, sizeof(sa));
-
-  sigemptyset(&sa.sa_mask);
-  sa.sa_handler = SIG_IGN;
+  struct sigaction sa = { .sa_handler = SIG_IGN };
   sigaction(SIGPIPE, &sa, NULL);
 
   while (1) {
@@ -157,7 +156,14 @@ void companion_entry(int fd) {
     LOGI("New companion request.\n - Module name: %s\n - Client fd: %d\n", name, client_fd);
 
     ret = write_uint8_t(client_fd, 1);
-    ASSURE_SIZE_WRITE("ZygiskdCompanion", "client_fd", ret, sizeof(uint8_t));
+    if (ret != sizeof(uint8_t)) {
+      LOGE("Failed to send client_fd in ZygiskdCompanion: Expected %zu, got %zd\n", sizeof(uint8_t), ret);
+
+      free(args);
+      close(client_fd);
+
+      break;
+    }
 
     pthread_t thread;
     if (pthread_create(&thread, NULL, entry_thread, (void *)args) == 0)

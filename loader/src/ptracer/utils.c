@@ -119,8 +119,8 @@ struct maps *parse_maps(const char *filename) {
       path_offset++;
     }
 
-    maps->maps = (struct map *)realloc(maps->maps, (i + 1) * sizeof(struct map));
-    if (!maps->maps) {
+    struct map *tmp_maps = (struct map *)realloc(maps->maps, (i + 1) * sizeof(struct map));
+    if (!tmp_maps) {
       LOGE("Failed to allocate memory for maps->maps");
 
       maps->size = i;
@@ -130,6 +130,7 @@ struct maps *parse_maps(const char *filename) {
 
       return NULL;
     }
+    maps->maps = tmp_maps;
 
     maps->maps[i].start = addr_start;
     maps->maps[i].end = addr_end;
@@ -230,9 +231,15 @@ bool get_regs(int pid, struct user_regs_struct *regs) {
     };
 
     if (ptrace(PTRACE_GETREGSET, pid, NT_PRSTATUS, &iov) == -1) {
-      PLOGE("getregs");
+      PLOGE("GETREGSET failed, trying GETREGS");
 
-      return false;
+      if (ptrace(/* PTRACE_GETREGS */ 12, pid, 0, regs) == -1) {
+        PLOGE("GETREGS");
+
+        return false;
+      }
+
+      return true;
     }
   #endif
 
@@ -253,9 +260,15 @@ bool set_regs(int pid, struct user_regs_struct *regs) {
     };
 
     if (ptrace(PTRACE_SETREGSET, pid, NT_PRSTATUS, &iov) == -1) {
-      PLOGE("setregs");
+      PLOGE("SETREGSET failed, trying SETREGS");
 
-      return false;
+      if (ptrace(/* PTRACE_SETREGS */ 13, pid, 0, regs) == -1) {
+        PLOGE("SETREGS");
+
+        return false;
+      }
+
+      return true;
     }
   #endif
 
@@ -522,6 +535,32 @@ int fork_dont_care() {
   return pid;
 }
 
+void tracee_skip_syscall(int pid) {
+  struct user_regs_struct regs;
+  if (!get_regs(pid, &regs)) {
+    LOGE("failed to get seccomp regs");
+    exit(1);
+  }
+  regs.REG_SYSNR = -1;
+  if (!set_regs(pid, &regs)) {
+    LOGE("failed to set seccomp regs");
+    exit(1);
+  }
+
+  /* INFO: It might not work, don't check for error */
+#if defined(__aarch64__)
+  int sysnr = -1;
+  struct iovec iov = {
+    .iov_base = &sysnr,
+    .iov_len = sizeof (int),
+  };
+  ptrace(PTRACE_SETREGSET, pid, NT_ARM_SYSTEM_CALL, &iov);
+#elif defined(__arm__)
+  ptrace(PTRACE_SET_SYSCALL, pid, 0, (void*) -1);
+#endif
+
+}
+
 void wait_for_trace(int pid, int *status, int flags) {
   while (1) {
     pid_t result = waitpid(pid, status, flags);
@@ -532,7 +571,21 @@ void wait_for_trace(int pid, int *status, int flags) {
       exit(1);
     }
 
-    if (!WIFSTOPPED(*status)) {
+    /* INFO: We'll fork there. This will signal SIGCHLD. We just ignore and continue
+               to avoid blocking/not continuing. */
+    if (WSTOPSIG(*status) == SIGCHLD) {
+      LOGI("process %d stopped by SIGCHLD, continue", pid);
+
+      ptrace(PTRACE_CONT, pid, 0, 0);
+
+      continue;
+    } else if (*status >> 8 == (SIGTRAP | (PTRACE_EVENT_SECCOMP << 8))) {
+      tracee_skip_syscall(pid);
+
+      ptrace(PTRACE_CONT, pid, 0, 0);
+
+      continue;
+    } else if (!WIFSTOPPED(*status)) {
       char status_str[64];
       parse_status(*status, status_str, sizeof(status_str));
 
