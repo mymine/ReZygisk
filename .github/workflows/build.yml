@@ -19,10 +19,10 @@ jobs:
         uses: Mattraks/delete-workflow-runs@v2
         with:
           token: ${{ github.token }}
-          仓库: ${{ github.repository }}
-          retain_days: 0 
+          repository: ${{ github.repository }}
+          retain_days: 1 
           #The number of days that is used to compare with the retention days of each workflow.
-          keep_minimum_runs: 2 
+          keep_minimum_runs: 1
           #The minimum runs to keep for each workflow.
 
       - name: Setup Java
@@ -60,7 +60,7 @@ jobs:
         run: |
           releaseName=`ls module/build/outputs/release/ReZygisk-v*-release.zip | awk -F '(/|.zip)' '{print $5}'` && echo "releaseName=$releaseName" >> $GITHUB_OUTPUT
           unzip module/build/outputs/release/ReZygisk-v*-release.zip -d zksu-release
-          rm -rf zksu-release/webroot
+         # rm -rf zksu-release/webroot
           
       - name: Upload release
         uses: actions/upload-artifact@v4
