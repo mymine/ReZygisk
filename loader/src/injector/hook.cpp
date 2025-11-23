@@ -1099,9 +1099,17 @@ void hook_functions() {
     PLT_HOOK_REGISTER(android_runtime_dev, android_runtime_inode, _ZNK18FileDescriptorInfo14ReopenOrDetach, true);
     
     if (!hook_commit(map_infos)) {
-        LOGE("Failed to commit plt_hook");
-
         plt_hook_list->clear();
+
+        PLT_HOOK_REGISTER(android_runtime_dev, android_runtime_inode, fork, false);
+        PLT_HOOK_REGISTER(android_runtime_dev, android_runtime_inode, strdup, false);
+        PLT_HOOK_REGISTER(android_runtime_dev, android_runtime_inode, property_get, false);
+
+        if (hook_commit(map_infos)) {
+            LOGW("Hooked without ReopenOrDetach hook! Umounting overlays will cause problems");
+        } else {
+            LOGE("Failed to hook neccessary symbols to function");
+        }
     }
 
     lsplt_free_maps(map_infos);
