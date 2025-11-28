@@ -81,7 +81,7 @@ static bool solist_init() {
 
       See #63 for more information.
   */
-  SoInfo *somain = (SoInfo *)getSymbValueByPrefix(linker, "__dl__ZL6somain");
+  SoInfo *somain = getSymbValueByPrefix(linker, "__dl__ZL6somain");
   if (somain == NULL) {
     LOGE("Failed to find somain __dl__ZL6somain*");
 
@@ -126,9 +126,9 @@ static bool solist_init() {
   solist_init_error:
     ElfImg_destroy(linker);
 
-    heuristics_done = true;
+  heuristics_done = true;
 
-    return false;
+  return false;
 }
 
 /* INFO: find_containing_library returns the SoInfo for the library that contains
@@ -159,7 +159,7 @@ bool solist_drop_so_path(void *lib_memory) {
              ignore the numerous limitations that not handling other structures
              that are finalized with dlclose lead up to, so that the code can
              be simpler. */
-  if (dlclose((void *)found) == -1) {
+  if (dlclose(found) == -1) {
     LOGE("Failed to dlclose libzygisk.so: %s", dlerror());
 
     return false;
